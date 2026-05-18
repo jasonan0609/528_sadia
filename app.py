@@ -250,11 +250,16 @@ GAME_HTML = r"""<!doctype html>
   }
   .pin.cleared { background: #2a8a2a; }
   .pin.future  { background: #4a4a64; opacity: 0.55; }
-  .player-dot {
-    width: 16px; height: 16px; border-radius: 50%;
-    background: #4a90e2; border: 3px solid #fff;
-    box-shadow: 0 0 12px rgba(74,144,226,0.8);
+  .player-sprite {
+    width: 32px; height: 42px;
+    filter: drop-shadow(0 0 6px rgba(255,217,102,0.7));
+    image-rendering: pixelated; image-rendering: crisp-edges;
   }
+  .player-sprite .leg-l { animation: legBob 0.42s steps(1) infinite alternate; }
+  .player-sprite .leg-r { animation: legBob 0.42s steps(1) infinite alternate-reverse; }
+  @keyframes legBob { from { transform: translateY(0); } to { transform: translateY(-1px); } }
+  .player-sprite .body { animation: bodyBob 0.42s steps(1) infinite alternate; }
+  @keyframes bodyBob { from { transform: translateY(0); } to { transform: translateY(-0.4px); } }
   /* Leaflet default attribution prettier */
   .leaflet-control-attribution { font-size: 9px !important; background: rgba(0,0,0,0.5) !important; color: #aaa !important; }
   .leaflet-control-attribution a { color: #b9bcff !important; }
@@ -498,14 +503,42 @@ function refreshMarkers() {
   });
 }
 
+const PLAYER_SVG = `
+<svg class="player-sprite" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <ellipse cx="12" cy="27" rx="7" ry="1.6" fill="rgba(0,0,0,0.35)"/>
+  <g class="body">
+    <rect x="5"  y="2"  width="14" height="5" fill="#2a1a0e"/>
+    <rect x="4"  y="5"  width="3"  height="9" fill="#2a1a0e"/>
+    <rect x="17" y="5"  width="3"  height="9" fill="#2a1a0e"/>
+    <rect x="5"  y="13" width="14" height="2" fill="#2a1a0e"/>
+    <rect x="7"  y="5"  width="10" height="8" fill="#d2a679"/>
+    <rect x="9"  y="9"  width="2"  height="2" fill="#1a0a0e"/>
+    <rect x="13" y="9"  width="2"  height="2" fill="#1a0a0e"/>
+    <rect x="8"  y="11" width="1"  height="1" fill="#e89a9a"/>
+    <rect x="15" y="11" width="1"  height="1" fill="#e89a9a"/>
+    <rect x="5"  y="14" width="14" height="6" fill="#ff77aa"/>
+    <rect x="5"  y="19" width="14" height="1" fill="#ff558b"/>
+    <rect x="4"  y="15" width="1"  height="4" fill="#d2a679"/>
+    <rect x="19" y="15" width="1"  height="4" fill="#d2a679"/>
+  </g>
+  <g class="leg-l">
+    <rect x="7"  y="20" width="4" height="3" fill="#3a5da8"/>
+    <rect x="7"  y="23" width="4" height="1" fill="#1a1a2e"/>
+  </g>
+  <g class="leg-r">
+    <rect x="13" y="20" width="4" height="3" fill="#3a5da8"/>
+    <rect x="13" y="23" width="4" height="1" fill="#1a1a2e"/>
+  </g>
+</svg>`;
+
 function setPlayer(lat, lng, accuracy) {
   if (!playerMarker) {
     playerMarker = L.marker([lat, lng], {
-      icon: L.divIcon({ className: '', html: '<div class="player-dot"></div>', iconSize: [16,16], iconAnchor: [8,8] })
+      icon: L.divIcon({ className: '', html: PLAYER_SVG, iconSize: [32, 42], iconAnchor: [16, 38] })
     }).addTo(map);
     accuracyCircle = L.circle([lat, lng], {
       radius: accuracy || 30,
-      color: '#4a90e2', fillColor: '#4a90e2', fillOpacity: 0.1, weight: 1
+      color: '#ffd966', fillColor: '#ffd966', fillOpacity: 0.08, weight: 1
     }).addTo(map);
     // First fix: center on player
     map.setView([lat, lng], Math.max(map.getZoom(), 15));

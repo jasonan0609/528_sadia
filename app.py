@@ -55,7 +55,30 @@ GAME_HTML = r"""<!doctype html>
     font-family: inherit; font-size: 10px; letter-spacing: 1px;
   }
   #hud button:hover { background: rgba(255,255,255,0.1); }
-  #map { flex: 1; width: 100%; background: #2a2a3e; }
+  #map {
+    flex: 1; width: 100%; background: #0a0a14; position: relative;
+  }
+  /* Warm torch-lit tint over the dark tiles — only the tile pane, not markers */
+  .leaflet-tile-pane {
+    filter: sepia(0.35) saturate(1.25) brightness(1.05) contrast(1.08) hue-rotate(-8deg);
+  }
+  /* Vignette to darken the edges — gives a 'lantern light' feel */
+  #map::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(10,5,2,0.55) 100%);
+    z-index: 400;
+  }
+  .leaflet-container { background: #1a0f08; }
+  /* The animated quest route line */
+  .route-line { animation: routeFlow 1.6s linear infinite; }
+  @keyframes routeFlow { to { stroke-dashoffset: -28; } }
+  /* Subtle frame on the map */
+  #map::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    border: 1px solid rgba(255,217,102,0.18);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+    z-index: 401;
+  }
   #hint-bar {
     padding: 10px 12px; background: linear-gradient(180deg, #0f0f1e, #1a1a2e);
     border-top: 2px solid #ffd966; flex-shrink: 0;
@@ -233,23 +256,49 @@ GAME_HTML = r"""<!doctype html>
 
   /* ===== Custom Leaflet markers ===== */
   .pin {
-    width: 32px; height: 32px; border-radius: 50%;
+    width: 40px; height: 40px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-weight: bold; font-family: 'Courier New', monospace;
-    color: #fff; box-shadow: 0 0 12px rgba(0,0,0,0.6);
-    border: 3px solid #fff;
+    font-size: 15px; color: #fff;
+    position: relative;
+    border: 2px solid rgba(0,0,0,0.7);
+  }
+  .pin::before {
+    content: ''; position: absolute; inset: -2px;
+    border-radius: 50%;
+    box-shadow: inset 0 -4px 8px rgba(0,0,0,0.45), inset 0 4px 6px rgba(255,255,255,0.18);
+    pointer-events: none;
   }
   .pin.current {
-    background: #ffd966; color: #000;
-    animation: pinPulse 1s ease-in-out infinite alternate;
-    border-color: #fff;
+    background: radial-gradient(circle at 30% 28%, #ffe88a 0%, #ffd966 35%, #b8841c 100%);
+    color: #2a1a0e;
+    text-shadow: 0 0 4px rgba(255,255,255,0.5);
+    animation: pinPulse 1.1s ease-in-out infinite alternate;
+  }
+  .pin.current::after {
+    content: ''; position: absolute; inset: -10px;
+    border-radius: 50%;
+    border: 1px dashed rgba(255,217,102,0.7);
+    animation: spinHalo 6s linear infinite;
+    pointer-events: none;
   }
   @keyframes pinPulse {
-    from { box-shadow: 0 0 8px #ffd966; transform: scale(1); }
-    to   { box-shadow: 0 0 32px #ffd966, 0 0 56px #ff77aa; transform: scale(1.15); }
+    from { box-shadow: 0 0 12px #ffd966, 0 0 30px #ff77aa; transform: scale(1); }
+    to   { box-shadow: 0 0 32px #ffd966, 0 0 64px #ff77aa, 0 0 88px rgba(255,119,170,0.4); transform: scale(1.12); }
   }
-  .pin.cleared { background: #2a8a2a; }
-  .pin.future  { background: #4a4a64; opacity: 0.55; }
+  @keyframes spinHalo {
+    from { transform: rotate(0deg); } to { transform: rotate(360deg); }
+  }
+  .pin.cleared {
+    background: radial-gradient(circle at 30% 28%, #8effa1 0%, #4ab063 35%, #1f5a30 100%);
+    color: #0a2a14;
+    box-shadow: 0 0 12px rgba(74,176,99,0.5);
+  }
+  .pin.future {
+    background: radial-gradient(circle at 30% 28%, #5a5a72 0%, #3a3a4e 50%, #1a1a26 100%);
+    color: #7e7e95;
+    opacity: 0.75;
+  }
   .player-sprite {
     width: 32px; height: 42px;
     filter: drop-shadow(0 0 6px rgba(255,217,102,0.7));
@@ -347,7 +396,7 @@ const DUNGEON_LOCATIONS = [
     lat: 40.7707, lng: -73.9956,
     hint: 'North along the Hudson. Pier 97 is waiting.' },
   { id: 3, name: 'Birthday Rites',     short: 'LIC apartment',
-    lat: 40.7461, lng: -73.9501,   // ← REPLACE with the apartment coords
+    lat: 40.74273036, lng: -73.952679,   // ← REPLACE with the apartment coords 
     hint: 'Back home to the LIC apartment.' },
   { id: 4, name: 'Kono',               short: 'Kono · Bowery',
     lat: 40.7234, lng: -73.9907,
@@ -359,7 +408,7 @@ const DUNGEON_LOCATIONS = [
     lat: 40.7263, lng: -73.9886,
     hint: 'East Village. The final stop.' },
 ];
-const TRIGGER_RADIUS_M = 60;   // meters — bump up if GPS is flaky in any spot
+const TRIGGER_RADIUS_M = 100;  // meters — generous for NYC urban-canyon GPS drift
 const DEFAULT_CENTER = [40.7461, -73.9501];
 const DEFAULT_ZOOM = 13;
 const STATE_KEY = 'sadiaQuestAR_v1';
@@ -468,17 +517,31 @@ function pinIcon(stageIdx, status) {
   return L.divIcon({
     className: '',
     html: `<div class="pin ${status}">${label}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
   });
 }
+
+let routeLine = null;
 
 function initMap() {
   map = L.map('map', { zoomControl: true, attributionControl: true })
         .setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // CartoDB Dark Matter — moody dungeon base, then warmed via CSS filter on the tile pane.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
-    attribution: '© OpenStreetMap'
+    subdomains: 'abcd',
+    attribution: '© OpenStreetMap · © CARTO'
+  }).addTo(map);
+  // Dashed quest route connecting all 7 stops in order
+  const coords = DUNGEON_LOCATIONS.map(d => [d.lat, d.lng]);
+  routeLine = L.polyline(coords, {
+    color: '#ffd966',
+    weight: 3,
+    opacity: 0.7,
+    dashArray: '6, 8',
+    className: 'route-line',
+    interactive: false,
   }).addTo(map);
   // Place dungeon pins
   DUNGEON_LOCATIONS.forEach((d, i) => {

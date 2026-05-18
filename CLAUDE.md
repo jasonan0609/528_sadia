@@ -72,7 +72,7 @@ Classic Pokémon/Zelda feel.
 
 ## `ar-walk` — real-world GPS scavenger hunt (production)
 
-She physically walks across NYC. Each of the 7 dungeons is pinned to a real address; arriving within ~60m auto-triggers the puzzle. **Same 7 puzzles, same correct answers — only the trigger mechanism changed.**
+She physically walks across NYC. Each of the 7 dungeons is pinned to a real address; arriving within ~100m (~330 ft) auto-triggers the puzzle. **Same 7 puzzles, same correct answers — only the trigger mechanism changed.**
 
 ### Architecture
 - Leaflet 1.9.4 + OpenStreetMap tiles (free, no API key) loaded from unpkg CDN.
@@ -94,7 +94,7 @@ Top of the inline `<script>` in `app.py`, look for `const DUNGEON_LOCATIONS = [.
 
 To grab a precise coord: right-click in Google Maps → click the lat/lng readout at the top of the popup → copy.
 
-`TRIGGER_RADIUS_M = 60` is tunable per spot if any location's GPS is flaky in NYC's urban-canyon zones.
+`TRIGGER_RADIUS_M = 100` is tunable per spot if any location's GPS is flaky in NYC's urban-canyon zones.
 
 ### Hosting
 - Local dev: `streamlit run app.py` works on localhost. Browser geolocation requires HTTPS *or* localhost.

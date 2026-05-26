@@ -308,6 +308,30 @@ GAME_HTML = r"""<!doctype html>
     filter: drop-shadow(0 0 6px rgba(255,217,102,0.7));
     image-rendering: pixelated; image-rendering: crisp-edges;
   }
+  /* ===== Dev-mode D-pad (visible only when DEV is on) ===== */
+  #dpad {
+    position: fixed; right: 12px; bottom: 92px;
+    display: none;
+    grid-template-columns: 44px 44px 44px;
+    grid-template-rows: 44px 44px 44px;
+    gap: 4px; z-index: 500;
+    touch-action: manipulation;
+  }
+  #dpad.show { display: grid; }
+  #dpad .dp {
+    background: rgba(20,20,32,0.88); color: #ffd966;
+    border: 1px solid #ffd966; border-radius: 6px;
+    font-size: 16px; font-family: inherit; cursor: pointer;
+    padding: 0; user-select: none; -webkit-user-select: none;
+    transition: transform 0.05s, background 0.1s;
+  }
+  #dpad .dp:active { background: #ffd966; color: #000; transform: scale(0.94); }
+  #dpad .dp.big.on { background: #ffd966; color: #000; font-weight: bold; }
+  #dpad .dp.up    { grid-column: 2; grid-row: 1; }
+  #dpad .dp.left  { grid-column: 1; grid-row: 2; }
+  #dpad .dp.big   { grid-column: 2; grid-row: 2; font-size: 12px; }
+  #dpad .dp.right { grid-column: 3; grid-row: 2; }
+  #dpad .dp.down  { grid-column: 2; grid-row: 3; }
   .player-sprite .leg-l { animation: legBob 0.42s steps(1) infinite alternate; }
   .player-sprite .leg-r { animation: legBob 0.42s steps(1) infinite alternate-reverse; }
   @keyframes legBob { from { transform: translateY(0); } to { transform: translateY(-1px); } }
@@ -368,6 +392,13 @@ GAME_HTML = r"""<!doctype html>
     </span>
   </div>
   <div id="map"></div>
+  <div id="dpad" aria-hidden="true">
+    <button class="dp up"    data-dir="up"    aria-label="north">▲</button>
+    <button class="dp left"  data-dir="left"  aria-label="west">◀</button>
+    <button class="dp big"   data-dir="big"   title="Toggle big step (5×)">5×</button>
+    <button class="dp right" data-dir="right" aria-label="east">▶</button>
+    <button class="dp down"  data-dir="down"  aria-label="south">▼</button>
+  </div>
   <div id="hint-bar">
     <p id="hintText">Tap BEGIN to start.</p>
     <button id="imHere">I'M HERE (manual unlock)</button>
@@ -1183,6 +1214,7 @@ devBtn.addEventListener('click', () => {
   // Move focus off the button so SPACE/Enter don't re-toggle dev mode.
   devBtn.blur();
   refreshImHereBtn();
+  refreshDpad();
   if (devMode) {
     if (watchId !== null) {
       try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
@@ -1238,21 +1270,45 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+  const dirKey = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right' }[e.key];
+  if (!dirKey) return;
   e.preventDefault();
+  devStep(dirKey, e.shiftKey || dpadBig);
+});
 
-  // step ~120m (just past trigger radius so each press meaningfully changes zone state),
-  // shift = ~600m for crossing town quickly. cos(lat) keeps east/west feeling right.
-  const stepLat = e.shiftKey ? 0.0054 : 0.00108;
+// Step ~120m (just past trigger radius so each press meaningfully changes zone),
+// big = ~600m for crossing town fast. cos(lat) keeps east/west feeling right.
+function devStep(dir, big) {
+  if (!devMode || !devPos) return;
+  const stepLat = big ? 0.0054 : 0.00108;
   const cosLat = Math.max(Math.cos(devPos.lat * Math.PI / 180), 0.1);
   const stepLng = stepLat / cosLat;
-
-  if (e.key === 'ArrowUp')    devPos.lat += stepLat;
-  if (e.key === 'ArrowDown')  devPos.lat -= stepLat;
-  if (e.key === 'ArrowRight') devPos.lng += stepLng;
-  if (e.key === 'ArrowLeft')  devPos.lng -= stepLng;
-
+  if (dir === 'up')    devPos.lat += stepLat;
+  if (dir === 'down')  devPos.lat -= stepLat;
+  if (dir === 'right') devPos.lng += stepLng;
+  if (dir === 'left')  devPos.lng -= stepLng;
   feedDevPos();
+}
+
+// D-pad: on-screen arrows for dev mode. Sticky "5×" button replaces the
+// shift modifier since you can't hold shift on a phone.
+const dpadEl = document.getElementById('dpad');
+let dpadBig = false;
+function refreshDpad() {
+  dpadEl.classList.toggle('show', devMode);
+}
+dpadEl.querySelectorAll('.dp').forEach((btn) => {
+  // Use pointerdown so it feels instant and the map's drag handler can't eat it.
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const dir = btn.dataset.dir;
+    if (dir === 'big') {
+      dpadBig = !dpadBig;
+      btn.classList.toggle('on', dpadBig);
+      return;
+    }
+    devStep(dir, dpadBig);
+  });
 });
 
 // =====================================================================

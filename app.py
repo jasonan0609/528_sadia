@@ -395,7 +395,7 @@ const DUNGEON_LOCATIONS = [
     lat: 40.7411, lng: -73.9579,
     hint: 'Walk to the LIC ferry terminal at the East River.' },
   { id: 1, name: 'Brunch',             short: 'Brunch spot',
-    lat: 40.7589, lng: -73.9851,   // ← REPLACE with your actual brunch spot
+    lat: 40.7616, lng: -73.9789,   // 145 W 53rd St, New York, NY 10019
     hint: 'Cross to Manhattan. Head to the brunch spot.' },
   { id: 2, name: 'Pier 97',            short: 'Pier 97',
     lat: 40.7707, lng: -73.9956,

@@ -55,6 +55,8 @@ GAME_HTML = r"""<!doctype html>
     font-family: inherit; font-size: 10px; letter-spacing: 1px;
   }
   #hud button:hover { background: rgba(255,255,255,0.1); }
+  #hud button.active { background: #ffd966; color: #000; border-color: #ffd966; }
+  #hud button.active:hover { background: #ffe88a; }
   #map {
     flex: 1; width: 100%; background: #0a0a14; position: relative;
   }
@@ -121,11 +123,13 @@ GAME_HTML = r"""<!doctype html>
     margin-top: 12px; width: 100%; letter-spacing: 3px;
   }
 
-  /* ===== Modal layer (reused from 2D) ===== */
+  /* ===== Modal layer (reused from 2D) =====
+     z-index must beat Leaflet's pane stack (marker-pane 600, popup-pane 700)
+     so the puzzle isn't rendered BEHIND the map markers. */
   #modal-root {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.88); z-index: 100; padding: 14px;
+    background: rgba(0,0,0,0.88); z-index: 9000; padding: 14px;
     overflow-y: auto;
   }
   #modal-root.show { display: flex; animation: fadeIn 0.3s; }
@@ -316,7 +320,7 @@ GAME_HTML = r"""<!doctype html>
   /* ===== Final ending (reused) ===== */
   #ending { position: fixed; inset: 0; background: #000;
     display: none; flex-direction: column; align-items: center;
-    justify-content: center; z-index: 200;
+    justify-content: center; z-index: 10000;
     color: #ffd966; text-align: center; padding: 30px;
     font-family: 'Georgia', 'Times New Roman', serif;
     opacity: 0; transition: opacity 4s ease-in; }
@@ -327,7 +331,7 @@ GAME_HTML = r"""<!doctype html>
   #ending.show p.small.visible { opacity: 0.85; }
 
   #fade-black { position: fixed; inset: 0; background: #000;
-    opacity: 0; pointer-events: none; z-index: 180;
+    opacity: 0; pointer-events: none; z-index: 9500;
     transition: opacity 3.6s ease-in; }
   #fade-black.show { opacity: 1; pointer-events: all; }
 </style>
@@ -358,6 +362,7 @@ GAME_HTML = r"""<!doctype html>
       <span class="target" id="targetLine">Next: —</span>
     </span>
     <span class="actions">
+      <button id="devBtn" title="Developer mode — move with arrow keys, no GPS">DEV</button>
       <button id="muteBtn">SOUND ON</button>
       <button id="resetBtn">RESET</button>
     </span>
@@ -522,7 +527,35 @@ function pinIcon(stageIdx, status) {
   });
 }
 
-let routeLine = null;
+let routePassed = null;
+let routeCurrent = null;
+
+// Show only the trail she has already walked (between cleared dungeons)
+// plus the one upcoming segment to her current target. Future legs stay hidden.
+function refreshRoute() {
+  if (routePassed)  { map.removeLayer(routePassed);  routePassed  = null; }
+  if (routeCurrent) { map.removeLayer(routeCurrent); routeCurrent = null; }
+  const K = state.stage;
+  // Walked path through the first K cleared dungeons (needs >= 2 points to draw)
+  if (K >= 2) {
+    const passedCoords = DUNGEON_LOCATIONS.slice(0, K).map(d => [d.lat, d.lng]);
+    routePassed = L.polyline(passedCoords, {
+      color: '#4a6a55', weight: 2, opacity: 0.35,
+      dashArray: '2, 6', interactive: false,
+    }).addTo(map);
+  }
+  // Next leg: from her last cleared dungeon to her current target
+  if (K >= 1 && K < DUNGEON_LOCATIONS.length) {
+    const curCoords = [
+      [DUNGEON_LOCATIONS[K-1].lat, DUNGEON_LOCATIONS[K-1].lng],
+      [DUNGEON_LOCATIONS[K  ].lat, DUNGEON_LOCATIONS[K  ].lng],
+    ];
+    routeCurrent = L.polyline(curCoords, {
+      color: '#ffd966', weight: 3, opacity: 0.85,
+      dashArray: '6, 8', className: 'route-line', interactive: false,
+    }).addTo(map);
+  }
+}
 
 function initMap() {
   map = L.map('map', { zoomControl: true, attributionControl: true })
@@ -533,16 +566,6 @@ function initMap() {
     subdomains: 'abcd',
     attribution: '© OpenStreetMap · © CARTO'
   }).addTo(map);
-  // Dashed quest route connecting all 7 stops in order
-  const coords = DUNGEON_LOCATIONS.map(d => [d.lat, d.lng]);
-  routeLine = L.polyline(coords, {
-    color: '#ffd966',
-    weight: 3,
-    opacity: 0.7,
-    dashArray: '6, 8',
-    className: 'route-line',
-    interactive: false,
-  }).addTo(map);
   // Place dungeon pins
   DUNGEON_LOCATIONS.forEach((d, i) => {
     const status = state.cleared[i] ? 'cleared' : (i === state.stage ? 'current' : 'future');
@@ -551,6 +574,8 @@ function initMap() {
                      .addTo(map);
     dungeonMarkers.push(marker);
   });
+  // Draw the quest route based on current progress
+  refreshRoute();
   // Track user pans so we don't fight them when auto-centering
   map.on('dragstart', () => {
     userPannedRecently = true;
@@ -650,11 +675,13 @@ function onPos(pos) {
   const distM = haversineM(latitude, longitude, target.lat, target.lng);
   updateHud(distM);
 
-  // Check trigger
-  if (distM <= TRIGGER_RADIUS_M && !triggerLocked && !state.cleared[state.stage] && !modalOpen()) {
+  // Check trigger. In dev mode, widen the radius — cardinal arrow steps can land
+  // you ~150m diagonally from a pin even when you visually overlap it.
+  const radius = devMode ? 300 : TRIGGER_RADIUS_M;
+  if (distM <= radius && !triggerLocked && !state.cleared[state.stage] && !modalOpen()) {
     triggerLocked = true;
     openDungeon(state.stage);
-  } else if (distM > TRIGGER_RADIUS_M + 15) {
+  } else if (distM > radius + 15) {
     // exited the zone — unlock so future arrivals can retrigger (after closing without solving)
     triggerLocked = false;
   }
@@ -683,10 +710,12 @@ const targetLineEl = document.getElementById('targetLine');
 const hintTextEl = document.getElementById('hintText');
 
 function updateHud(distM) {
-  stageNumEl.textContent = state.stage;
+  stageNumEl.textContent = state.stage + (devMode ? ' · DEV' : '');
   if (state.stage >= 7) {
     targetLineEl.textContent = 'COMPLETE ★';
-    hintTextEl.textContent = 'You finished. Open the letter.';
+    hintTextEl.textContent = devMode
+      ? '🛠 DEV MODE · click DEV to exit'
+      : 'You finished. Open the letter.';
     return;
   }
   const target = DUNGEON_LOCATIONS[state.stage];
@@ -697,7 +726,9 @@ function updateHud(distM) {
   } else {
     targetLineEl.textContent = `Next: ${target.short} · ${(distM/1000).toFixed(2)}km`;
   }
-  hintTextEl.textContent = target.hint;
+  hintTextEl.textContent = devMode
+    ? '🛠 DEV · SPACE opens current · 1–7 jump to stage · arrows walk'
+    : target.hint;
 }
 
 // =====================================================================
@@ -718,6 +749,7 @@ function clearDungeon(idx) {
   state.stage = Math.max(state.stage, idx + 1);
   saveState();
   refreshMarkers();
+  refreshRoute();
   audio.sfx('success');
   triggerLocked = false;
   // Update HUD immediately even if we don't have a fresh GPS fix
@@ -1092,13 +1124,135 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   }
 });
 
-document.getElementById('imHere').addEventListener('click', () => {
+const imHereBtn = document.getElementById('imHere');
+function refreshImHereBtn() {
+  imHereBtn.textContent = devMode
+    ? "OPEN CURRENT PUZZLE (DEV)"
+    : "I'M HERE (manual unlock)";
+}
+function forceOpenDungeon(idx) {
+  // Bypass every guard in openDungeon — wipe any leftover modal state and
+  // re-render from scratch. Used by dev mode where the user must always be
+  // able to reach the puzzle regardless of state.cleared / currentDungeon.
+  modalRoot.classList.remove('show');
+  modalRoot.innerHTML = '';
+  currentDungeon = idx;
+  try { audio.init(); audio.sfx('enter'); } catch (e) {}
+  modalRoot.innerHTML = DUNGEONS[idx].html;
+  modalRoot.classList.add('show');
+  if (DUNGEONS[idx].onOpen) DUNGEONS[idx].onOpen();
+}
+
+imHereBtn.addEventListener('click', () => {
   if (state.stage >= 7) return;
   const target = DUNGEON_LOCATIONS[state.stage];
+  if (devMode) {
+    devPos = { lat: target.lat, lng: target.lng };
+    if (playerMarker) {
+      playerMarker.setLatLng([target.lat, target.lng]);
+      if (accuracyCircle) accuracyCircle.setLatLng([target.lat, target.lng]);
+    }
+    lastPos = { lat: target.lat, lng: target.lng, acc: 8 };
+    triggerLocked = true;
+    forceOpenDungeon(state.stage);
+    return;
+  }
   if (!confirm(`Open the puzzle for "${target.name}"? Only use this if you have arrived but GPS hasn't triggered.`)) return;
   state.manualOverrides.push({ idx: state.stage, ts: Date.now() });
   saveState();
   openDungeon(state.stage);
+});
+
+// =====================================================================
+// DEV MODE — arrow keys to move a fake position, 1–7 to teleport to a pin.
+// Lets you test the full route without leaving the couch.
+// =====================================================================
+let devMode = false;
+let devPos = null;   // { lat, lng } — synthetic player position
+const devBtn = document.getElementById('devBtn');
+
+function feedDevPos() {
+  if (!devPos) return;
+  onPos({ coords: { latitude: devPos.lat, longitude: devPos.lng, accuracy: 8 } });
+}
+
+devBtn.addEventListener('click', () => {
+  devMode = !devMode;
+  devBtn.classList.toggle('active', devMode);
+  devBtn.textContent = devMode ? 'DEV ON' : 'DEV';
+  // Move focus off the button so SPACE/Enter don't re-toggle dev mode.
+  devBtn.blur();
+  refreshImHereBtn();
+  if (devMode) {
+    if (watchId !== null) {
+      try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+      watchId = null;
+    }
+    if (!devPos) {
+      devPos = lastPos
+        ? { lat: lastPos.lat, lng: lastPos.lng }
+        : { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] };
+    }
+    triggerLocked = false;
+    feedDevPos();
+  } else {
+    startWatching();
+    updateHud(lastPos && state.stage < 7
+      ? haversineM(lastPos.lat, lastPos.lng, DUNGEON_LOCATIONS[state.stage].lat, DUNGEON_LOCATIONS[state.stage].lng)
+      : null);
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (!devMode) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+  if (modalOpen()) return;
+
+  // SPACE / Enter — teleport to current target pin AND force-open its puzzle.
+  if (e.key === ' ' || e.key === 'Enter') {
+    if (state.stage >= 7) return;
+    const d = DUNGEON_LOCATIONS[state.stage];
+    devPos = { lat: d.lat, lng: d.lng };
+    triggerLocked = true;
+    feedDevPos();
+    forceOpenDungeon(state.stage);
+    e.preventDefault();
+    return;
+  }
+
+  // 1–7 — teleport AND force-open that stage's puzzle (skips gating so any
+  // stage can be tested out of order in dev mode).
+  if (e.key >= '1' && e.key <= '7') {
+    const i = parseInt(e.key, 10) - 1;
+    const d = DUNGEON_LOCATIONS[i];
+    devPos = { lat: d.lat, lng: d.lng };
+    state.stage = i;
+    state.cleared[i] = false;   // allow re-testing already-cleared stages
+    saveState();
+    refreshMarkers();
+    triggerLocked = true;
+    feedDevPos();
+    forceOpenDungeon(i);
+    e.preventDefault();
+    return;
+  }
+
+  if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+
+  // step ~120m (just past trigger radius so each press meaningfully changes zone state),
+  // shift = ~600m for crossing town quickly. cos(lat) keeps east/west feeling right.
+  const stepLat = e.shiftKey ? 0.0054 : 0.00108;
+  const cosLat = Math.max(Math.cos(devPos.lat * Math.PI / 180), 0.1);
+  const stepLng = stepLat / cosLat;
+
+  if (e.key === 'ArrowUp')    devPos.lat += stepLat;
+  if (e.key === 'ArrowDown')  devPos.lat -= stepLat;
+  if (e.key === 'ArrowRight') devPos.lng += stepLng;
+  if (e.key === 'ArrowLeft')  devPos.lng -= stepLng;
+
+  feedDevPos();
 });
 
 // =====================================================================
